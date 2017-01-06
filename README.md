@@ -3,6 +3,10 @@ Keypirinha Plugin: Pinboard
 
 This plugin for Keypirinha provides access to Internet bookmarks on Pinboard.
 
+Download
+--------
+[Latest](https://github.com/tuteken/Keypirinha-Plugin-Pinboard/releases/latest)
+
 Configuration
 -------------
 
@@ -18,4 +22,4 @@ Release Notes
 - Add always_suggestion option
 
 **V 1.0**
-- First release of plugin.
+- First release of plugin
