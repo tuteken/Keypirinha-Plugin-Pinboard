@@ -56,7 +56,7 @@ class Pinboard(kp.Plugin):
     keep_auth_url = True
     force_new_window = None
     force_private_mode = None
-    api_token = "tuteken:9B096971CF45F578E6DC"#None
+    api_token = None
 
     ## Private
     api_base = "https://api.pinboard.in/v1/posts/all"
