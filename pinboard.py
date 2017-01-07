@@ -2,6 +2,7 @@
 
 import keypirinha as kp
 import keypirinha_util as kpu
+import keypirinha_net as kpn
 import keypirinha_api
 import os
 import datetime
@@ -40,28 +41,38 @@ class Pinboard(kp.Plugin):
     """Launch Pinboard bookmarks."""
 
     # Constants
+    CONFIG_SECTION_MAIN = "main"
     DEFAULT_ITEM_LABEL = "Pinboard"
     DEFAULT_ITEM_DESC = "Search and open bookmarks from pinboard.in"
     DEFAULT_ITEM_LABEL_FORMAT = "Pinboard: {label} ({tags})"
     DEFAULT_ALWAYS_SUGGEST = False
+    DEFAULT_KEEP_EMPTY_NAMES = True
+    DEFAULT_KEEP_AUTH_URL = True
+    DEFAULT_FORCE_NEW_WINDOW = None
+    DEFAULT_FORCE_PRIVATE_MODE = None
+    DEFAULT_BOOKMARK_REFRESH = 14400
+    DEFAULT_BOOKMARK_FILE = None
+    DEFAULT_TOREAD_TAG = "#toread"
+    DEFAULT_API_TOKEN = None
+    DEFAULT_API_BASE = "https://api.pinboard.in/v1/posts/all"
+    DEFAULT_API_FORMAT = "json"
+    DEFAULT_API_FILE = "pinboard.json"
     KEYWORD = "Pinboard"
         
     # Variables
-    ## Public
     item_label = DEFAULT_ITEM_LABEL
     item_label_format = DEFAULT_ITEM_LABEL_FORMAT
     always_suggest = DEFAULT_ALWAYS_SUGGEST
-    bookmark_file = None
-    keep_empty_names = True
-    keep_auth_url = True
-    force_new_window = None
-    force_private_mode = None
-    api_token = None
-
-    ## Private
-    api_base = "https://api.pinboard.in/v1/posts/all"
-    api_format = "json"
-    api_file = "pinboard.json"
+    keep_empty_names = DEFAULT_KEEP_EMPTY_NAMES
+    keep_auth_url = DEFAULT_KEEP_AUTH_URL
+    force_new_window = DEFAULT_FORCE_NEW_WINDOW
+    force_private_mode = DEFAULT_FORCE_PRIVATE_MODE
+    bookmark_refresh = DEFAULT_BOOKMARK_REFRESH
+    bookmark_file = DEFAULT_BOOKMARK_FILE
+    api_token = DEFAULT_API_TOKEN
+    api_base = DEFAULT_API_BASE
+    api_format = DEFAULT_API_FORMAT
+    api_file = DEFAULT_API_FILE
     
     def __init__(self):
         super().__init__()
@@ -70,12 +81,13 @@ class Pinboard(kp.Plugin):
 
     def on_start(self):
         self.dbg("On Start")
+
         self._read_config()
 
     def on_catalog(self):
         self.dbg("On Catalog")
+        
         self.set_catalog([self._create_keyword_item(label=self.item_label + "...",short_desc=self.DEFAULT_ITEM_DESC)])
-        self._create_cache()
         self._download_bookmarks()
         
         if self.always_suggest:
@@ -126,6 +138,8 @@ class Pinboard(kp.Plugin):
                 self.set_suggestions(suggestions, kp.Match.DEFAULT, kp.Sort.NONE)
 
     def on_execute(self, item, action):
+        self.dbg("On execute (item {} : action {})".format(item, action))
+        
         if action:
             kpu.execute_default_action(self, item, action)
         else:
@@ -136,23 +150,61 @@ class Pinboard(kp.Plugin):
                 execute=True)
 
     def on_events(self, flags):
-        self.dbg("On event(s) (flags {:#x})".format(flags))
+        self.dbg("On events (flags {:#x})".format(flags))
+        
         if flags & kp.Events.PACKCONFIG:
             self._read_config()
-            self.on_catalog()
 
     def _read_config(self):
         self.dbg("Read Config")
+        
         settings = self.load_settings()
-        #self.api_token = settings.get("api_token", "main")
-        self.item_label = settings.get("item_label", "main", self.DEFAULT_ITEM_LABEL)
-        self.item_label_format = settings.get("item_label_format", "main", self.DEFAULT_ITEM_LABEL_FORMAT)
-        self.always_suggest = settings.get("always_suggest", "main", self.DEFAULT_ALWAYS_SUGGEST)
-        self.keep_empty_names = settings.get_bool("keep_empty_names", "main", True)
-        self.keep_auth_url = settings.get_bool("keep_auth_url", "main", True)
-        self.force_new_window = settings.get_bool("force_new_window", "main", None)
-        self.force_private_mode = settings.get_bool("force_private_mode", "main", None)
+        
+        self.api_token = settings.get(
+            "api_token", 
+            self.CONFIG_SECTION_MAIN,
+            self.DEFAULT_API_TOKEN)
+        
+        self.bookmark_refresh = settings.get(
+            "bookmark_refresh",
+            self.CONFIG_SECTION_MAIN,
+            self.DEFAULT_BOOKMARK_REFRESH)
+        
+        self.item_label = settings.get(
+            "item_label", 
+            self.CONFIG_SECTION_MAIN,
+            self.DEFAULT_ITEM_LABEL)
 
+        self.item_label_format = settings.get(
+            "item_label_format", 
+            self.CONFIG_SECTION_MAIN,
+            self.DEFAULT_ITEM_LABEL_FORMAT)
+            
+        self.always_suggest = settings.get_bool(
+            "always_suggest", 
+            self.CONFIG_SECTION_MAIN,
+            self.DEFAULT_ALWAYS_SUGGEST)
+            
+        self.keep_empty_names = settings.get_bool(
+            "keep_empty_names", 
+            self.CONFIG_SECTION_MAIN,
+            self.DEFAULT_KEEP_EMPTY_NAMES)
+            
+        self.keep_auth_url = settings.get_bool(
+            "keep_auth_url", 
+            self.CONFIG_SECTION_MAIN,
+            self.DEFAULT_KEEP_AUTH_URL)
+            
+        self.force_new_window = settings.get_bool(
+            "force_new_window", 
+            self.CONFIG_SECTION_MAIN,
+            self.DEFAULT_FORCE_NEW_WINDOW)
+            
+        self.force_private_mode = settings.get_bool(
+            "force_private_mode", 
+            self.CONFIG_SECTION_MAIN,
+            self.DEFAULT_FORCE_PRIVATE_MODE)
+        
     def _create_keyword_item(self, label, short_desc):
         return self.create_item(
             category=kp.ItemCategory.KEYWORD,
@@ -173,51 +225,73 @@ class Pinboard(kp.Plugin):
             hit_hint=kp.ItemHitHint.NOARGS
         )
         
-    def _create_cache(self):
-        plugin_directory = self.get_package_cache_path(create=True)
-        self.bookmark_file = plugin_directory + "\\" + self.api_file
-    
     def _download_bookmarks(self):
         self.dbg("Download Bookmarks")
-
-        if self.api_token and len(self.api_token) == 0:
-            self.info("API token is not valid.")
-   
+        
+        if self.api_token:
+            if not len(self.api_token) > 0:
+                self.info("API token is not valid.")
+        
         self.api_url = self.api_base + "?auth_token=" + self.api_token + "&format=" + self.api_format
-       
-        if os.path.isfile(self.bookmark_file):
-            today = datetime.datetime.today()
-            file_modified = datetime.datetime.fromtimestamp(os.path.getmtime(self.bookmark_file))
-            delta = today - file_modified
-            if delta.seconds > (4 * 60 * 60): # if file is older than 4 hours, download a new copy
-                try:
-                    response = urllib.request.urlretrieve (self.api_url, self.bookmark_file)
-                except:
-                    self.info("Pinboard website unreachable.")
-        else:
-            try:
-                response = urllib.request.urlretrieve (self.api_url, self.bookmark_file)
-            except:
-                self.info("Pinboard website unreachable.")
-       
+        self.bookmark_path = self.get_package_cache_path(create=True)
+        
+        if os.path.isdir(self.bookmark_path):
+            self.bookmark_file = self.bookmark_path + "\\" + self.api_file
+            
+            if os.path.isfile(self.bookmark_file):
+                today = datetime.datetime.today()
+                file_modified = datetime.datetime.fromtimestamp(os.path.getmtime(self.bookmark_file))
+                delta = today - file_modified
+
+                if delta.seconds > self.bookmark_refresh:
+                    self._write_file(self.bookmark_file, self._fetch_bookmarks())
+            else:
+                self._write_file(self.bookmark_file, self._fetch_bookmarks())
+    
+    def _fetch_bookmarks(self):
+        self.dbg("Fetch Bookmarks")
+        
+        try:
+            opener = kpn.build_urllib_opener()
+            response = opener.open(self.api_url)
+        except:
+            self.info("Pinboard website could not be reached!")
+        
+        return response.read()
+    
+    def _write_file(self, file, content):
+        self.dbg("Write File")
+        
+        handle = None
+        
+        if isinstance(content, str):
+            handle = open(file, 'w')
+        elif isinstance(content, bytes):
+            handle = open(file, 'wb')
+        
+        handle.write(content)  
+        handle.close()
+    
     def _list_bookmarks(self):
         self.dbg("List Bookmarks")
         
         if not os.path.isfile(self.bookmark_file):
             self._download_bookmarks()
         
-        with open(self.bookmark_file) as data_file:
-            bookmark_data = json.load(data_file)
+        file_content = open(self.bookmark_file)
+        bookmark_data = json.load(file_content)
         
         bookmarks = []
         for bookmark in bookmark_data:
             tags = bookmark['tags']
             toread = None
+            
             if bookmark['toread'] == "yes":
                 if len(tags) == 0:
-                    tags = "#toread"
+                    tags = self.DEFAULT_TOREAD_TAG
                 else:
-                    tags = "#toread " + tags
+                    tags = self.DEFAULT_TOREAD_TAG + " " + tags
+
             bookmarks.append(Bookmark(tags, bookmark['description'], bookmark['href']))
             
         return bookmarks
