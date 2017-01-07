@@ -18,6 +18,10 @@ A Pinboard API key is require in order to retrieve bookmarks
 
 Release Notes
 -------------
+**V 1.2**
+- Switch to keypirinha_net for web requests
+- General code clean and optimization
+
 **V 1.1**
 - Add always_suggestion option
 
